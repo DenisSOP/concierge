@@ -1,13 +1,14 @@
 import { convertToCoreMessages, Message, streamText } from "ai";
 import { z } from "zod";
 
-import { geminiProModel } from "@/ai";
+import { geminiFlashModel } from "@/ai";
 import {
   generateReservationPrice,
   generateSampleFlightSearchResults,
   generateSampleFlightStatus,
   generateSampleSeatSelection,
 } from "@/ai/actions";
+import { knowledgeBase } from "@/ai/knowledge-base";
 import { auth } from "@/app/(auth)/auth";
 import {
   createReservation,
@@ -23,35 +24,28 @@ export async function POST(request: Request) {
     await request.json();
 
   const session = await auth();
-
-  if (!session) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const userId = session?.user?.id ?? "guest";
 
   const coreMessages = convertToCoreMessages(messages).filter(
     (message) => message.content.length > 0,
   );
 
   const result = await streamText({
-    model: geminiProModel,
-    system: `\n
-        - you help users book flights!
-        - keep your responses limited to a sentence.
-        - DO NOT output lists.
-        - after every tool call, pretend you're showing the result to the user and keep your response limited to a phrase.
-        - today's date is ${new Date().toLocaleDateString()}.
-        - ask follow up questions to nudge user into the optimal flow
-        - ask for any details you don't know, like name of passenger, etc.'
-        - C and D are aisle seats, A and F are window seats, B and E are middle seats
-        - assume the most popular airports for the origin and destination
-        - here's the optimal flow
-          - search for flights
-          - choose flight
-          - select seats
-          - create reservation (ask user whether to proceed with payment or change reservation)
-          - authorize payment (requires user consent, wait for user to finish payment and let you know when done)
-          - display boarding pass (DO NOT display boarding pass without verifying payment)
-        '
+    model: geminiFlashModel,
+    system: `
+        You are a helpful support assistant for TourenUp and the Touren-1 web app.
+        TourenUp is a motorcycle off-road coaching platform. Touren-1 is the connected web app where riders (Pioneers) register and generate drill protocols, and where pro coaches review submissions to train the Touren-1 AI model.
+
+        Use the following knowledge base to answer all user questions accurately:
+        ${knowledgeBase}
+
+        Guidelines:
+        - Answer questions clearly and concisely based on the knowledge base above.
+        - If the user's question is about the Touren-1 web app (Pioneer registration, drill protocols, coach queue, bounty board, consensus system), answer from the Touren-1 sections.
+        - If the question is about the TourenUp mobile app (trails, rides, sections, drills, leaderboard, subscriptions), answer from the TourenUp mobile app sections.
+        - Ask follow-up questions if you need clarification about which platform or user type the person is asking about (rider vs coach).
+        - Today's date is ${new Date().toLocaleDateString()}.
+        - If you don't know the answer, say so and suggest the user contact TourenUp support.
       `,
     messages: coreMessages,
     tools: {
@@ -137,10 +131,10 @@ export async function POST(request: Request) {
 
           const id = generateUUID();
 
-          if (session && session.user && session.user.id) {
+          if (session && session.user && userId) {
             await createReservation({
               id,
-              userId: session.user.id,
+              userId: userId,
               details: { ...props, totalPriceInUSD },
             });
 
@@ -174,7 +168,7 @@ export async function POST(request: Request) {
         execute: async ({ reservationId }) => {
           const reservation = await getReservationById({ id: reservationId });
 
-          if (reservation.hasCompletedPayment) {
+          if (reservation?.hasCompletedPayment) {
             return { hasCompletedPayment: true };
           } else {
             return { hasCompletedPayment: false };
@@ -215,12 +209,12 @@ export async function POST(request: Request) {
       },
     },
     onFinish: async ({ responseMessages }) => {
-      if (session.user && session.user.id) {
+      if (userId) {
         try {
           await saveChat({
             id,
             messages: [...coreMessages, ...responseMessages],
-            userId: session.user.id,
+            userId: userId,
           });
         } catch (error) {
           console.error("Failed to save chat");
@@ -245,15 +239,12 @@ export async function DELETE(request: Request) {
   }
 
   const session = await auth();
-
-  if (!session || !session.user) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const userId = session?.user?.id ?? "guest";
 
   try {
     const chat = await getChatById({ id });
 
-    if (chat.userId !== session.user.id) {
+    if (chat?.userId !== userId) {
       return new Response("Unauthorized", { status: 401 });
     }
 
