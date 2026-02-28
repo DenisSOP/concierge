@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   try {
     const reservation = await getReservationById({ id });
 
-    if (reservation.userId !== session.user.id) {
+    if (reservation?.userId !== session.user.id) {
       return new Response("Unauthorized!", { status: 401 });
     }
 
@@ -51,7 +51,7 @@ export async function PATCH(request: Request) {
       return new Response("Reservation not found!", { status: 404 });
     }
 
-    if (reservation.userId !== session.user.id) {
+    if (reservation?.userId !== session.user.id) {
       return new Response("Unauthorized!", { status: 401 });
     }
 

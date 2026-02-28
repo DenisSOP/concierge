@@ -18,6 +18,8 @@ export default async function Page({ params }: { params: any }) {
   // type casting and converting messages to UI messages
   const chat: Chat = {
     ...chatFromDb,
+    id: chatFromDb.chatId,
+    createdAt: new Date(chatFromDb.createdAt),
     messages: convertToUIMessages(chatFromDb.messages as Array<CoreMessage>),
   };
 
